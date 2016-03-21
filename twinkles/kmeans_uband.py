@@ -63,3 +63,12 @@ for label, center in enumerate(centers):
     plt.scatter(mjd, X[index][1])
     fig.add_subplot(144)
     plt.scatter(mjd, X[index][2])
+
+object_ids = np.array(object_ids)
+
+def plot_sampler(label, nsamp=5):
+    ids = object_ids[np.where(labels==label)]
+    for id in ids[:nsamp]:
+        print id
+        lc = lc_factory.create(id)
+        lc.plot()
