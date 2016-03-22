@@ -55,7 +55,8 @@ for subplot, band in zip(subplots, 'ugrizy'):
     outfile = 'stamp_%i.fits' % objectId
     stamp.writeFits(outfile)
     fits_obj = fits.open(outfile)
-    fig, axes = render_fits_image(fits_obj[1], title=outfile, subplot=subplot)
+    fig, axes, norm = render_fits_image(fits_obj[1], title=outfile,
+                                        subplot=subplot)
     axes.scatter(ras, decs, transform=axes.get_transform('icrs'), color='red',
                  alpha=0.8)
     axes.scatter([ra], [dec], transform=axes.get_transform('icrs'),
