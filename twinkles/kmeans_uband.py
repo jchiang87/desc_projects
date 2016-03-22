@@ -4,6 +4,7 @@ from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 from desc.twinkles.db_table_access import LsstDatabaseTable
 from desc.twinkles.lightCurveFactory import LightCurveFactory
+plt.ion()
 
 def normed_hist(x, bins=20):
     xnorm = x/max(x)
@@ -18,9 +19,11 @@ lc_factory = LightCurveFactory(**db_info)
 # Find all of the light curves from deblended sources with chisq > 1e4
 query = '''select cs.objectId from Chisq cs join Object obj
            on cs.objectId=obj.objectId
-           where cs.dof=252 and cs.chisq>1e4 and obj.numChildren=0'''
+           where cs.filterName='u' and cs.dof=252 and cs.chisq>1e4
+           and obj.numChildren=0'''
 object_ids = np.array(jc_desc.apply(query, lambda curs : [x[0] for x in curs]))
-print "Found", len(object_ids), 'objects.'
+print query
+print 'Found', len(object_ids), 'deblended variable objects for K-means analysis.'
 
 # Get one light curve from the factory to do the mjd conversion.
 lc = lc_factory.create(object_ids[0])
@@ -42,29 +45,32 @@ for objectId in object_ids:
                            lambda curs : np.array([x[0] for x in curs])))
     Xhist.append(normed_hist(X[-1]))
 X = np.array(X)
+Xhist = np.array(Xhist)
 
 n_clusters = 5
 n_init = 10
 k_means = KMeans(init='k-means++', n_clusters=n_clusters, n_init=n_init)
 t0 = time.time()
 k_means.fit(Xhist)
-print 'elapsed time:', time.time() - t0
+#print 'elapsed time:', time.time() - t0
 labels = k_means.labels_
 centers = k_means.cluster_centers_
 
-plt.ion()
 plt.rcParams['figure.figsize'] = (20, 5)
 for label, center in enumerate(centers):
     index = np.where(labels == label)
+
+    # Plot the histogram cluster and center
     fig = plt.figure()
-    fig.add_subplot(141).set_title('histograms center')
-    plt.scatter(range(20), center)
-    fig.add_subplot(142).set_title('objectId: %i' % object_ids[index][0])
-    plt.scatter(mjd, X[index][0])
-    fig.add_subplot(143).set_title('objectId: %i' % object_ids[index][1])
-    plt.scatter(mjd, X[index][1])
-    fig.add_subplot(144).set_title('objectId: %i' % object_ids[index][2])
-    plt.scatter(mjd, X[index][2])
+    fig.add_subplot(141).set_title('histograms')
+    for my_xhist in Xhist[index]:
+        plt.scatter(range(20), my_xhist, alpha=0.2)
+    plt.scatter(range(20), center, color='cyan')
+
+    # Plot the first three light curves in this cluster.
+    for i in range(3):
+        fig.add_subplot(142+i).set_title('objectId: %i' % object_ids[index][i])
+        plt.scatter(mjd, X[index][i])
 
 def plot_sampler(label, nsamp=5):
     ids = object_ids[np.where(labels==label)]
