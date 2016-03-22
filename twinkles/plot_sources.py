@@ -46,8 +46,9 @@ ids, ras, decs = zip(*objects)
 print query
 print "found", len(ids), "objects"
 
-plt.rcParams['figure.figsize'] = (20, 30)
+plt.rcParams['figure.figsize'] = (15, 10)
 subplots = (231, 232, 233, 234, 235, 236)
+fig = None
 for subplot, band in zip(subplots, 'ugrizy'):
     coadd = PostageStampMaker(os.path.join('output', 'deepCoadd', band,
                                            '0/0,0.fits'))
@@ -56,7 +57,7 @@ for subplot, band in zip(subplots, 'ugrizy'):
     stamp.writeFits(outfile)
     fits_obj = fits.open(outfile)
     fig, axes, norm = render_fits_image(fits_obj[1], title=outfile,
-                                        subplot=subplot)
+                                        subplot=subplot, fig=fig)
     axes.scatter(ras, decs, transform=axes.get_transform('icrs'), color='red',
                  alpha=0.8)
     axes.scatter([ra], [dec], transform=axes.get_transform('icrs'),
