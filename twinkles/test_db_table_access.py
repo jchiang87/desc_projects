@@ -1,18 +1,29 @@
 import unittest
 import desc.twinkles.db_table_access as db_table_access
 
-db_available = False
-try:
-    test = db_table_access.LsstDatabaseTable(db='jc_desc',
-                                             read_default_file='~/.my.cnf')
-    del test
-    db_available = True
-except Exception, eobj:
-    #print eobj
-    pass
+def get_db_info():
+    """
+    Try to connect to Travis CI MySQL services or the user's via
+    ~/.my.cnf and return the connection info.  Otherwise, return an
+    empty dict, which should skip the tests.
+    """
+    db_info = {}
+    try:
+        try:
+            # Travis CI usage:
+            my_db_info = dict(db='myapp_test', user='travis')
+            test = db_table_access.LsstDatabaseTable(**my_db_info)
+        except Exception:
+            # JC's configuration
+            my_db_info = dict(read_default_file='~/.my.cnf')
+            test = db_table_access.LsstDatabaseTable(**my_db_info)
+        del test
+        db_info = my_db_info
+    except Exception, eobj:
+        pass
+    return db_info()
 
-
-@unittest.skipUnless(db_available, "MySQL database not available")
+@unittest.skipUnless(db_info, "MySQL database not available")
 class db_table_access_TestCase(unittest.TestCase):
     "Test db_table_access class."
     def setUp(self):
