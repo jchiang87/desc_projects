@@ -1,4 +1,5 @@
 import os
+import sys
 from collections import OrderedDict
 import time
 import pandas as pd
@@ -38,8 +39,9 @@ def create_object_table(ref_catalog):
     return pd.DataFrame(data=dataset, columns=columns)
 
 def create_forced_source_table(data_repo, imin=0, imax=1000):
+    "Create the ForcedSource table."
     visits = desc.twinkles.get_visits(data_repo)
-    columns = 'objectId, ccdVisitId, psFlux, psFlux_Sigma'.split()
+    columns = 'objectId ccdVisitId psFlux psFlux_Sigma'.split()
     forced = pd.DataFrame([], columns=columns)
     num_visits = 0
     for band, visit_list in visits.iteritems():
@@ -74,7 +76,9 @@ if __name__ == '__main__':
     indexes = range(0, 985, 50)
     indexes.append(985)
     for imin, imax in zip(indexes[:-1], indexes[1:]):
+        print imin, imax
+        sys.stdout.flush()
         tstart = time.time()
         forced = create_forced_source_table(data_repo, imin=imin, imax=imax)
         print "execution time:", time.time() - tstart
-        forced.to_pickle('forced_%(imin)03i_%(imax)03i_.pkl' % locals())
+        forced.to_pickle('forced_%(imin)03i_%(imax)03i.pkl' % locals())
