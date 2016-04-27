@@ -27,12 +27,14 @@ pixel_scale = wcs.pixelScale().asArcseconds()
 
 bps = bandpasses()
 df = pd.read_pickle('sky_bg_df.pkl')
+#df = pd.read_pickle('sky_bg_df_butler.pkl')
 
 # Compute the sky backgrounds from median background pixel value.
 sb = []
 for band, flux in zip(df['filter'].values, df['flux'].values):
     sb.append(-2.5*np.log10(flux/pixel_scale**2) + bps[band].zeropoint)
 df['sky_bg'] = sb
+df.to_pickle('sky_bg_df_sb_calc.pkl')
 
 colors = 'violet green red blue orange yellow'.split()
 handles = []

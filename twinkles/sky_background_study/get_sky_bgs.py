@@ -10,15 +10,17 @@ import lsst.daf.persistence as dp
 from desc.twinkles import get_visits
 from desc.twinkles.sqlite_tools import SqliteDataFrameFactory
 
-def get_calexp_bg(visits, output_repo, raft, sensor):
+def get_calexp_bg(visits, output_repo, raft, sensor, nmax=None):
     butler = dp.Butler(output_repo)
     results = OrderedDict()
     for i, visit in enumerate(visits):
+        if nmax is not None and i >= nmax:
+            break
         print "processing %i, %ith of %i visits" % (visit, i, len(visits))
         sys.stdout.flush()
         dataId = dict(visit=visit, raft=raft, sensor=sensor)
         calexp_bg = butler.get('calexpBackground', dataId=dataId)
-        image = calexp_bg.getImage()
+        image = calexp_bg[0][0].getStatsImage()
         results[visit] = afwMath.makeStatistics(image,
                                                 afwMath.MEDIAN).getValue()
     return results
@@ -44,10 +46,8 @@ if __name__ == '__main__':
     filter_sky_brightness = factory.create(columns, 'Summary',
                                            condition='order by obsHistID asc')
 
-    from get_opsim_db import filter_sky_brightness
-
 #    output_repo = '/nfs/slac/kipac/fs1/g/desc/Twinkles/501'
-    output_repo = '/nfs/farm/g/desc/u1/users/jchiang/desc_projects/twinkles/Sky_Background_Study/501'
+    output_repo = '/nfs/farm/g/desc/u1/users/jchiang/desc_projects/twinkles/sky_background_study/501'
     raft = '2,2'
     sensor = '1,1'
     visits = get_visits(output_repo)
@@ -57,7 +57,8 @@ if __name__ == '__main__':
         all_visits.extend(visit_list)
     all_visits.sort()
 
-    calexp_bgs = get_calexp_bg_no_butler(all_visits, output_repo, raft, sensor)
+    calexp_bgs = get_calexp_bg(all_visits, output_repo, raft, sensor)
+#    calexp_bgs = get_calexp_bg_no_butler(all_visits, output_repo, raft, sensor)
 
     data = []
     for visit, flux in calexp_bgs.items():
@@ -69,4 +70,4 @@ if __name__ == '__main__':
 
     columns='visit flux obsHistID filtSkyBrightness filter visitExpTime'.split()
     df = pd.DataFrame(data=data, columns=columns)
-    df.to_pickle('sky_bg_df.pkl')
+    df.to_pickle('sky_bg_df_butler.pkl')
