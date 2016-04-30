@@ -6,6 +6,7 @@ from desc.twinkles.lightCurveFactory import LightCurveFactory
 
 class ChisqTable(LsstDatabaseTable):
     def __init__(self, **db_info):
+        self._table_name = 'Chisq'
         super(ChisqTable, self).__init__(**db_info)
 
     def _create_table(self):
@@ -44,7 +45,8 @@ for objectId in object_ids:
         else:
             sys.stdout.write('.')
         sys.stdout.flush()
-    my_band = np.where(lc.data.columns['bandpass'] == ('lsst%s' % band))
+    my_band = np.where((lc.data.columns['bandpass'] == ('lsst%s' % band)) &
+                       (lc.data.columns['fluxerr'] != 0))
     x, y, yerr = lc.data[my_band]['mjd'], lc.data[my_band]['flux'], \
         lc.data[my_band]['fluxerr']
     nproc += 1
