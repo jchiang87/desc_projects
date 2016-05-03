@@ -6,7 +6,7 @@ sql = """create table if not exists
          numChildren INT,
          primary key (objectId))"""
 
-connection = desc.pserv.DbConnection(db='jc_fermi',
+connection = desc.pserv.DbConnection(db='jc_desc',
                                      read_default_file='~/.my.cnf')
 connection.apply(sql)
 

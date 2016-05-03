@@ -4,7 +4,7 @@ import sncosmo
 from desc.twinkles.lightCurveFactory import LightCurveFactory
 plt.ion()
 
-db_info = dict(db='jc_fermi', read_default_file='~/.my.cnf')
+db_info = dict(db='jc_desc', read_default_file='~/.my.cnf')
 
 lc_factory = LightCurveFactory(**db_info)
 
@@ -12,9 +12,10 @@ lc_factory = LightCurveFactory(**db_info)
 #mjd_range = (60560, 60595)
 #t0 = 60578.
 
-objectId = 4392
-mjd_range = (60960, 60988)
-t0 = 60970.
+objectId = 1026
+mjd_range = (62400, 62600)
+t0 = 62440.
+z = 0.27
 
 lc = lc_factory.create(objectId)
 
@@ -36,9 +37,9 @@ band_mask = np.where((mjd_range[0] < lc.data['mjd'])
 sn1 = lc.data[band_mask]
 
 model = sncosmo.Model(source='salt2-extended')
-model.set(t0=t0)
+model.set(t0=t0, z=z)
 res, fitted_model = sncosmo.fit_lc(sn1, model,
                                    ['z', 't0', 'x0', 'x1', 'c'],
-                                   bounds=dict(z=(0.01, 2.)))
+                                   bounds=dict(z=(0.1, 0.4)))
 
 sncosmo.plot_lc(data=sn1, model=fitted_model, errors=res.errors)
