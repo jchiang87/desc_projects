@@ -67,7 +67,7 @@ print("# tier 1 SNe candidates:", len(lcs))
 # Define a +/-30 day window around the peak flux, and plot the lightcurves.
 dt = 30
 with open('run1.1_SNe_salt2-extended_fit_results.txt', 'w') as output:
-    output.write('#objectId  z  t0  x0  x1  c\n')
+    output.write('#objectId  chisq  ndof  z  t0  x0  x1  c\n')
     for object_id, fluxes in lcs.items():
         print("fitting object", object_id)
         mjd_peak = mjds[np.where(fluxes == max(fluxes))]
@@ -85,6 +85,8 @@ with open('run1.1_SNe_salt2-extended_fit_results.txt', 'w') as output:
             continue
         if res.success:
             output.write('%i  ' % object_id)
+            output.write('%.2e  ' % res.chisq)
+            output.write('%i  ' % res.ndof)
             for item in res.parameters:
                 output.write('%s  ' % item)
             output.write('\n')
