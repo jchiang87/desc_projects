@@ -52,7 +52,7 @@ band = 'u'
 csv_file = 'phosim_lc_stats.csv'
 with open(csv_file, 'w') as output:
     writer = csv.writer(output, delimiter=',')
-    writer.writerow('sourceId meanCounts chisq dof radius filterName'.split())
+    writer.writerow('sourceId meanCounts chisq dof radius xmin xmax ymin ymax filterName'.split())
     for i, sourceId in enumerate(sourceIds):
         if i % (len(sourceIds)/4) == 0:
             sys.stdout.write('!')
@@ -72,7 +72,8 @@ with open(csv_file, 'w') as output:
             x, y, radius = compute_circle(np.array(data['avgX'].tolist()),
                                           np.array(data['avgY'].tolist()))
             writer.writerow((sourceId, mean, chisq, len(counts) - 1,
-                             radius, band))
+                             radius, min(data['avgX']), max(data['avgX']),
+                             min(data['avgY']), max(data['avgY']), band))
             output.flush()
 
 connect.load_csv('PhosimLightCurveStats', csv_file)
