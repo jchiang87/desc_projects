@@ -53,12 +53,16 @@ class PhosimObjects(object):
         columns = 'sourceId dof chisq RA Dec'.split()
         self.data = self.conn.apply(query, GetData(columns))
 
-    def find_nearest_coadd_object(self, ra, dec, box_size=5):
+    def find_nearest_coadd_object(self, sourceId, box_size=5):
         """
         Find the nearest coadd object, searching within a box of
-        box_size arcmin squared centered on the target ra, dec.
+        box_size arcmin squared centered on the target's sky location.
         Return its objectId from the Object table.
         """
+        # Get the sky coordinates of the phosim object via its sourceId.
+        selection = self.data['sourceId'] == sourceId
+        ra = self.data[selection]['RA']
+        dec = self.data[selection]['Dec']
         # Query for objects within the box from the Object table.
         size = box_size/3600.  # convert from arcsec to degrees
         cos_dec = np.abs(np.cos(dec*np.pi/180.))
@@ -110,10 +114,7 @@ class PhosimObjects(object):
                      horizontalalignment='left')
 
         # Plot the ForcedSource light curve for the nearest coadd object.
-        selection = self.data['sourceId'] == sourceId
-        ra = self.data[selection]['RA']
-        dec = self.data[selection]['Dec']
-        objectId = self.find_nearest_coadd_object(ra, dec)
+        objectId = self.find_nearest_coadd_object(sourceId)
         query = """select cv.obsStart, fs.psFlux, fs.psFlux_Sigma
                    from CcdVisit cv join ForcedSource fs
                    on cv.ccdVisitId=fs.ccdVisitId
@@ -155,18 +156,20 @@ class PhosimObjects(object):
         axis_range[:2] = xaxis_range
         plt.axis(axis_range)
         plt.xlabel('mjd')
-        plt.ylabel('# PhoSim photons / forced source flux')
+        plt.ylabel('numPhotons / %(band)s band flux' % locals())
 
 if __name__ == '__main__':
     SN_objects = PhosimObjects(dof_range=(0, 30), chisq_range=(1e3, 1e10))
     AGN_objects = PhosimObjects(dof_range=(249, 249), chisq_range=(1e3, 1e10))
 
-    band = 'u'
+    band = 'r'
 
+    sourceIds = (6144007055260714, 6145673903924266)
 #    for sourceId in SN_objects.data['sourceId'].tolist()[:2]:
-#        print(sourceId)
-#        SN_objects.plot_lcs(sourceId, band)
-
-    for sourceId in AGN_objects.data['sourceId'].tolist()[:10]:
+    for sourceId in sourceIds:
         print(sourceId)
-        AGN_objects.plot_lcs(sourceId, band)
+        SN_objects.plot_lcs(sourceId, band)
+
+#    for sourceId in AGN_objects.data['sourceId'].tolist()[:1]:
+#        print(sourceId)
+#        AGN_objects.plot_lcs(sourceId, band)
