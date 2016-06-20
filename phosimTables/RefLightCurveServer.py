@@ -16,35 +16,16 @@ class RefLightCurveServer(object):
             opsim_csv = os.path.join(lsst.utils.getPackageDir('monitor'),
                                      'data', 'SelectedKrakenVisits.csv')
         df = pd.read_csv(opsim_csv, index_col='obsHistID')
-        self.opsim_df = df[['expMJD', 'filter', 'fiveSigmaDepth']]
+        opsim_df = df[['expMJD', 'filter', 'fiveSigmaDepth']]
 
-        if db_config is None:
-            db_config = os.path.join(lsst.utils.getPackageDir('sims_catUtils'),
-                                     'config', 'db.py')
-        config = bcm.BaseCatalogConfig()
-        config.load(db_config)
-        self._create_connection(config)
+        lsstBP = BandpassDict.loadBandpassesFromFiles()[0]
         self.reflc = RefLightCurves(idSequence=idSequence,
                                     tableName='TwinkSN',
-                                    dbConnection=self.connection,
-                                    dbCursor=self.cursor)
-
-        self.lsstBP = BandpassDict.loadBandpassesFromFiles()[0]
-
-    def _create_connection(self, config):
-        username = dafPersist.DbAuth.username(config.host, config.port)
-        password = dafPersist.DbAuth.password(config.host, config.port)
-        self.connection = pymssql.connect(user=username,
-                                          password=password,
-                                          database=config.database,
-                                          port=config.port,
-                                          host=config.host)
-        self.cursor = self.connection.cursor()
+                                    bandPassDict=lsstBP,
+                                    observations=opsim_df)
 
     def lightCurve(self, idValue, band):
-        lc = self.reflc.lightCurve(idValue, self.opsim_df, self.lsstBP)
-        my_band = lc[lc['band'] == band]
-        return my_band[['time', 'flux', 'fluxerr']]
+        return self.reflc.lightCurve(idValue, bandName=band)
 
 if __name__ == '__main__':
     idSequence = (6144007055260714, 6145673903924266)

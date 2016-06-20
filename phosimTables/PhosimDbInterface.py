@@ -81,7 +81,7 @@ class PhosimObjects(object):
             if closest is None or sep < sep_min:
                 sep_min = sep
                 closest = j
-        return objects['objectId'][closest]
+        return objects['objectId'][closest], sep_min
 
     def plot_lcs(self, sourceId, band, box_size=5, verbose=False,
                  figsize=(6, 10)):
