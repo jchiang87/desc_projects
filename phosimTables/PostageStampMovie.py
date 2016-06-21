@@ -100,6 +100,20 @@ class PostageStampMovie(object):
         """
         Create the figure with the animated cutout and lightcurve.
         """
+        self.objectId = objectId
+        self.band = band
+        self.pixel_data = l2_service.get_pixel_data(objectId, band, size=size)
+        self._display_figure(size, figsize, scaling_factor)
+        self._set_animation_attributes()
+        self.fig.canvas.mpl_connect('button_press_event', self.on_click)
+
+    def _display_figure(self, size, figsize, scaling_factor):
+        """
+        Display the image and light curve.
+        """
+        objectId = self.objectId
+        band = self.band
+
         # Create the coadd postage stamp and use as the initial image.
         coadd = PostageStampMaker(os.path.join(repo, 'deepCoadd', band,
                                                '0/0,0.fits'))
@@ -110,13 +124,11 @@ class PostageStampMovie(object):
         hdu = convert_image_to_hdu(stamp)
         norm = image_norm(hdu.data*scaling_factor)
 
-        # Display the image and light curve.
         plt.rcParams['figure.figsize'] = figsize
         self.fig = plt.figure()
         self.fig.suptitle('objectId: %(objectId)i\n%(band)s band' % locals())
-        fig, axes, self.image, norm = render_fits_image(hdu, norm=norm,
-                                                        fig=self.fig,
-                                                        subplot=211)
+        self.image = render_fits_image(hdu, norm=norm, fig=self.fig,
+                                       subplot=211)[2]
         self.fig.add_subplot(212)
         self.light_curve = l2_service.get_light_curve(objectId, band)
         plt.errorbar(self.light_curve['mjd'], self.light_curve['flux'],
@@ -131,11 +143,12 @@ class PostageStampMovie(object):
         plt.xlabel('MJD')
         plt.ylabel('flux (nmgy)')
 
-        self.pixel_data = l2_service.get_pixel_data(objectId, band, size=size)
-
-        self.anim_ctrl = AnimationControl(self)
-        self.fig.canvas.mpl_connect('button_press_event',
-                                    self.anim_ctrl.on_click)
+    def _set_animation_attributes(self):
+        "Set the initial values of the attributes to control the animation."
+        self.pause = False
+        self.update = False
+        self.num = 0
+        self.nmax = len(self.light_curve['mjd'])
 
     def run(self, interval=200):
         """
@@ -143,26 +156,8 @@ class PostageStampMovie(object):
         The returned FuncAnimation object must exist in the top-level
         context.
         """
-        return animation.FuncAnimation(self.fig, self.anim_ctrl,
-                                       frames=self.anim_ctrl.index,
+        return animation.FuncAnimation(self.fig, self, frames=self.index,
                                        interval=interval)
-
-class AnimationControl(object):
-    """
-    Class to control the PostageStampMovie behavior.
-    """
-    def __init__(self, postage_stamp_animation):
-        self.pause = False
-        self.update = False
-        self.num = 0
-        self.image = postage_stamp_animation.image
-        self.current_point = postage_stamp_animation.current_point
-        self.pixel_data = postage_stamp_animation.pixel_data
-        self.mjd = postage_stamp_animation.light_curve['mjd']
-        self.flux = postage_stamp_animation.light_curve['flux']
-        self.fluxerr = postage_stamp_animation.light_curve['fluxerr']
-        self.yrange = postage_stamp_animation.yrange
-        self.nmax = len(self.mjd)
 
     def index(self):
         "Generator that returns the frame number to display."
@@ -175,11 +170,12 @@ class AnimationControl(object):
 
     def __call__(self, i):
         "Set the data in the image for the ith frame."
+        mjd = self.light_curve['mjd']
+        flux = self.light_curve['flux']
         if not self.pause or self.update:
             self.image.set_data(self.pixel_data.values()[i])
-            self.current_point[0].set_data([self.mjd[i]], [self.flux[i]])
-            self.current_point[1].set_data([self.mjd[i], self.mjd[i]],
-                                           self.yrange)
+            self.current_point[0].set_data([mjd[i]], [flux[i]])
+            self.current_point[1].set_data([mjd[i], mjd[i]], self.yrange)
             self.update = False
         return [self.image, self.current_point]
 
@@ -187,7 +183,7 @@ class AnimationControl(object):
         "Call-back to transmit mouse event info."
         if event.button == 3:
             try:
-                dt = np.abs(self.mjd - event.xdata)
+                dt = np.abs(self.light_curve['mjd'] - event.xdata)
                 self.num = np.where(dt == min(dt))[0][0] - 1
                 self.update = True
             except IndexError:
@@ -201,7 +197,6 @@ if __name__ == '__main__':
     interval = 200
     l2_service = Level2DataService(repo)
     movies = []
-#    for objectId in (6931, 52429)[:1]:
-    for objectId in (50302,):
+    for objectId in (6931, 50302, 52429):
         ps = PostageStampMovie(objectId, band, l2_service)
         movies.append(ps.run(interval))
