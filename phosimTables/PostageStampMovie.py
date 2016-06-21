@@ -41,7 +41,7 @@ class Level2DataService(object):
         if os.path.isfile(pickle_file):
             with open(pickle_file, 'r') as input_:
                 pixel_data = pickle.load(input_)
-            return pixel_data
+            return pixel_data, pickle_file
         pixel_data = OrderedDict()
         visits = self.get_visits(band)
         ra, dec = self.get_coords(objectId)
@@ -56,7 +56,7 @@ class Level2DataService(object):
                 copy.deepcopy(stamp.getMaskedImage().getImage().getArray())
         with open(pickle_file, 'w') as output:
             pickle.dump(pixel_data, output)
-        return pixel_data
+        return pixel_data, pickle_file
 
     def get_light_curve(self, objectId, band):
         """
@@ -95,19 +95,21 @@ class PostageStampMovie(object):
     The forced source light curve is also displayed and cursor events
     on the light curve plot can be used to control the animation.
     """
-    def __init__(self, objectId, band, l2_service, size=10, figsize=(6, 10),
-                 scaling_factor=50):
+    def __init__(self, objectId, band, l2_service, size=10,
+                 pickle_file=None, figsize=(6, 10), scaling_factor=50):
         """
         Create the figure with the animated cutout and lightcurve.
         """
         self.objectId = objectId
         self.band = band
-        self.pixel_data = l2_service.get_pixel_data(objectId, band, size=size)
-        self._display_figure(size, figsize, scaling_factor)
+        self.pixel_data, self.pickle_file = \
+            l2_service.get_pixel_data(objectId, band, size=size,
+                                      pickle_file=pickle_file)
+        self._display_figure(l2_service, size, figsize, scaling_factor)
         self._set_animation_attributes()
         self.fig.canvas.mpl_connect('button_press_event', self.on_click)
 
-    def _display_figure(self, size, figsize, scaling_factor):
+    def _display_figure(self, l2_service, size, figsize, scaling_factor):
         """
         Display the image and light curve.
         """
@@ -152,9 +154,9 @@ class PostageStampMovie(object):
 
     def run(self, interval=200):
         """
-        Run the animation with a time between frames of interval in msec.
-        The returned FuncAnimation object must exist in the top-level
-        context.
+        Run the animation with a time between frames of interval in
+        msec.  The returned FuncAnimation object must exist in the
+        top-level context.
         """
         return animation.FuncAnimation(self.fig, self, frames=self.index,
                                        interval=interval)
@@ -193,10 +195,15 @@ class PostageStampMovie(object):
 
 if __name__ == '__main__':
     repo = '/nfs/farm/g/desc/u1/users/jchiang/desc_projects/twinkles/Run1.1/output'
-    band = 'u'
+    band = 'r'
     interval = 200
-    l2_service = Level2DataService(repo)
+    level2_service = Level2DataService(repo)
     movies = []
-    for objectId in (6931, 50302, 52429):
-        ps = PostageStampMovie(objectId, band, l2_service)
+#    for objectId in (6931, 50302, 52429)[:1]:
+#        ps = PostageStampMovie(objectId, band, level2_service)
+#        movies.append(ps.run(interval))
+
+    objectId = 6931
+    for band in 'ur':
+        ps = PostageStampMovie(objectId, band, level2_service)
         movies.append(ps.run(interval))
