@@ -13,81 +13,107 @@ import astropy.time
 import matplotlib.pyplot as plt
 import sncosmo
 from desc.pserv import DbConnection
+import desc.monitor
 from light_curve_service import LightCurveFactory
+from find_peaks import find_peaks
 plt.ion()
+
+__all__ = ['L2DataService']
 
 def get_nparray(cursor):
     return np.array([x[0] for x in cursor])
 
-db_info = dict(db='jc_desc', read_default_file='~/.my.cnf')
-jc_desc = DbConnection(**db_info)
-lc_factory = LightCurveFactory(**db_info)
+class L2DataService(desc.monitor.Level2DataService):
+    def __init__(self, repo, db_info=None):
+        super(L2DataService, self).__init__(repo, db_info=db_info)
+        self._get_mjds()
 
-tier1_frac = 0.95
-tier1_threshold = 0.2
+    def _get_mjds(self):
+        self.mjds = dict()
+        for band in 'ugrizy':
+            query = """select obsStart from CcdVisit where
+                       filterName='%(band)s' order by obsStart asc""" % locals()
+            self.mjds[band] =\
+                astropy.time.Time(self.conn.apply(query, get_nparray)).mjd
+
+    def get_objectIds(self, band, chisq_min):
+        dof = len(self.mjds[band]) - 1
+        query = """select cs.objectId from Chisq cs
+                   join Object obj on cs.objectId=obj.objectId
+                   join ObjectNumChildren numCh on obj.objectId=numCh.objectId
+                   where cs.filterName='%(band)s' and cs.dof=%(dof)i
+                   and cs.chisq > %(chisq_min)s
+                   and numCh.numChildren=0""" % locals()
+        return self.conn.apply(query, get_nparray)
+
+    def get_SN_candidate_lcs(self, band, chisq_min, threshold=0.2, frac=0.95):
+        query_tpl = """select fs.psFlux, fs.ccdVisitId
+                       from ForcedSource fs join CcdVisit cv
+                       on fs.ccdVisitId=cv.ccdVisitId
+                       where fs.objectId=%(objectId)i and
+                       cv.filterName='%(band)s' and fs.psFlux_Sigma!=0
+                       order by fs.ccdVisitId asc"""
+        dof = len(self.mjds[band]) - 1
+        lcs = OrderedDict()
+        objectIds = self.get_objectIds(band, chisq_min)
+        for objectId in objectIds:
+            lc = self.conn.apply(query_tpl % locals(),  get_nparray)
+            # Find number of light curve fluxes that are above threshold.
+            above_threshold = len(np.where(lc < threshold*max(lc))[0])
+            # Check if there are at least frac*len(lc) fluxes
+            # measurements are above threshold
+            if above_threshold > frac*len(lc) and above_threshold < dof - 1:
+                lcs[objectId] = lc
+        return lcs
 
 # Find objectIds for all deblended sources that have chi-square values
 # (for their u band light curves) above chisq_min.
-band = 'u'
-chisq_min = 1e4
+if __name__ == '__main__':
+    repo = '/nfs/farm/g/desc/u1/users/jchiang/desc_projects/twinkles/Run1.1/output'
+    db_info = dict(database='jc_desc',
+                   host='ki-sr01.slac.stanford.edu',
+                   port=3307)
 
-# MJD values for u band.
-query = "select obsStart from CcdVisit where filterName='%(band)s'" % locals()
-mjds = astropy.time.Time(jc_desc.apply(query, get_nparray)).mjd
-dof = len(mjds) - 1
+    l2_service = L2DataService(repo, db_info=db_info)
+    lc_factory = LightCurveFactory(**db_info)
 
-query = '''select cs.objectId from Chisq cs
-           join Object obj on cs.objectId=obj.objectId
-           join ObjectNumChildren numCh on obj.objectId=numCh.objectId
-           where cs.filterName='%(band)s' and cs.dof=%(dof)i
-           and cs.chisq > %(chisq_min)s
-           and numCh.numChildren=0''' % locals()
+    band = 'u'
+    chisq_min = 1e4
 
-object_ids = jc_desc.apply(query, get_nparray)
+    lcs = l2_service.get_SN_candidate_lcs(band, chisq_min)
+    mjds = l2_service.mjds[band]
 
-# Get the u band light curves for each source.
-query_tpl = """select fs.psFlux, fs.ccdVisitId
-            from ForcedSource fs join CcdVisit cv
-            on fs.ccdVisitId=cv.ccdVisitId
-            where fs.objectId=%(objectId)i and cv.filterName='%(band)s'
-            and fs.psFlux_Sigma!=0
-            order by fs.ccdVisitId asc"""
-lcs = OrderedDict()
-for objectId in object_ids:
-    lc = jc_desc.apply(query_tpl % locals(),  get_nparray)
-    index = np.where(lc < tier1_threshold*max(lc))
-    # Check if there are at least 10 measurements above the fractional
-    # tier 1 threshold.
-    if (len(index[0]) > tier1_frac*len(lc)
-        and len(index[0]) < dof-1):
-        lcs[objectId] = lc
+    print("# SNe candidates:", len(lcs))
 
-print("# tier 1 SNe candidates:", len(lcs))
+    # Define a +/-30 day window around the peak flux.
+    dt = 30
 
-# Define a +/-30 day window around the peak flux, and plot the lightcurves.
-dt = 30
-with open('run1.1_SNe_salt2-extended_fit_results.txt', 'w') as output:
-    output.write('#objectId  chisq  ndof  z  t0  x0  x1  c\n')
-    for object_id, fluxes in lcs.items():
-        print("fitting object", object_id)
-        mjd_peak = mjds[np.where(fluxes == max(fluxes))]
-        lc = lc_factory.create(object_id)
-        date_mask = np.where((lc.data['mjd'] > mjd_peak - dt)
-                             & (lc.data['mjd'] < mjd_peak + dt))
-        sn_data = lc.data[date_mask]
-        model = sncosmo.Model(source='salt2-extended')
-        model.set(t0=mjd_peak, z=0.2)
-        try:
-            res, fitted_model = sncosmo.fit_lc(sn_data, model,
-                                               ['z', 't0', 'x0', 'x1', 'c'],
-                                               bounds=dict(z=(0.01, 1.)))
-        except RuntimeError:
-            continue
-        if res.success:
-            output.write('%i  ' % object_id)
-            output.write('%.2e  ' % res.chisq)
-            output.write('%i  ' % res.ndof)
-            for item in res.parameters:
-                output.write('%s  ' % item)
-            output.write('\n')
-            output.flush()
+    outfile = 'sncosmo_results.txt'
+    with open(outfile, 'w') as output:
+        output.write('#objectId  chisq  ndof  z  t0  x0  x1  c\n')
+        for objectId, fluxes in lcs.items()[:5]:
+            peak_indexes = find_peaks(fluxes)[0][0]
+            lc = lc_factory.create(objectId)
+            for ipeak in peak_indexes:
+                print("fitting object %i, peak index %i" % (objectId, ipeak))
+                mjd_peak = mjds[ipeak]
+                mask = np.where((lc.data['mjd'] > mjd_peak - dt)
+                                & (lc.data['mjd'] < mjd_peak + dt)
+                                & (lc.data['bandpass'] != 'lsstu'))
+                sn_data = lc.data[mask]
+                model = sncosmo.Model(source='salt2-extended')
+                model.set(t0=mjd_peak, z=0.2)
+                try:
+                    res, fitted_model =\
+                        sncosmo.fit_lc(sn_data, model, 'z t0 x0 x1 c'.split(),
+                                       bounds=dict(z=(0.01, 1.)))
+                except (RuntimeError, sncosmo.fitting.DataQualityError):
+                    continue
+                if res.success:
+                    output.write('%i  ' % objectId)
+                    output.write('%.2e  ' % res.chisq)
+                    output.write('%i  ' % res.ndof)
+                    for item in res.parameters:
+                        output.write('%s  ' % item)
+                    output.write('\n')
+                    output.flush()
