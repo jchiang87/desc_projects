@@ -24,8 +24,8 @@ def get_nparray(cursor):
     return np.array([x[0] for x in cursor])
 
 class L2DataService(desc.monitor.Level2DataService):
-    def __init__(self, repo, db_info=None):
-        super(L2DataService, self).__init__(repo, db_info=db_info)
+    def __init__(self, repo=None, db_info=None):
+        super(L2DataService, self).__init__(repo=repo, db_info=db_info)
         self._get_mjds()
 
     def _get_mjds(self):
@@ -69,15 +69,14 @@ class L2DataService(desc.monitor.Level2DataService):
 # Find objectIds for all deblended sources that have chi-square values
 # (for their u band light curves) above chisq_min.
 if __name__ == '__main__':
-    repo = '/nfs/farm/g/desc/u1/users/jchiang/desc_projects/twinkles/Run1.1/output'
     db_info = dict(database='jc_desc',
                    host='ki-sr01.slac.stanford.edu',
                    port=3307)
 
-    l2_service = L2DataService(repo, db_info=db_info)
+    l2_service = L2DataService(db_info=db_info)
     lc_factory = LightCurveFactory(**db_info)
 
-    band = 'u'
+    band = 'r'
     chisq_min = 1e4
 
     lcs = l2_service.get_SN_candidate_lcs(band, chisq_min)
@@ -88,7 +87,7 @@ if __name__ == '__main__':
     # Define a +/-30 day window around the peak flux.
     dt = 30
 
-    outfile = 'sncosmo_results.txt'
+    outfile = 'tmp.txt'
     with open(outfile, 'w') as output:
         output.write('#objectId  chisq  ndof  z  t0  x0  x1  c\n')
         for objectId, fluxes in lcs.items()[:5]:
