@@ -8,7 +8,7 @@ import astropy.units as units
 import matplotlib.pyplot as plt
 import MySQLdb as Database
 import lsst.afw.math as afwMath
-import desc.pserv
+import desc.monitor
 
 plt.ion()
 filterwarnings('ignore', category=Database.Warning)
@@ -25,17 +25,14 @@ class GetData(object):
         return pd.DataFrame(data=[x for x in curs], columns=self.columns)
 
 class PhosimObjects(object):
-    def __init__(self, conn=None, dof_range=None, chisq_range=None,
+    def __init__(self, l2_service, dof_range=None, chisq_range=None,
                  x_range=(100, 3950), y_range=(100, 3950)):
         """
         Initialize with the PhoSim objects satisfying the search
         constraints.
         """
-        if conn is None:
-            self.conn = desc.pserv.DbConnection(db='jc_desc',
-                                                read_default_file='~/.my.cnf')
-        else:
-            self.conn = conn
+        self.l2_service = l2_service
+        self.conn = l2_service.conn
         if dof_range is None:
             dof_range = 0, 1000
         if chisq_range is None:
@@ -53,17 +50,39 @@ class PhosimObjects(object):
         columns = 'sourceId dof chisq RA Dec'.split()
         self.data = self.conn.apply(query, GetData(columns))
 
-    def find_nearest_coadd_object(self, sourceId, box_size=5):
+    def get_ra_dec(self, sourceId):
         """
-        Find the nearest coadd object, searching within a box of
-        box_size arcmin squared centered on the target's sky location.
-        Return its objectId from the Object table.
+        Return the RA, Dec of the PhoSim object with the given sourceId.
         """
-        # Get the sky coordinates of the phosim object via its sourceId.
         selection = self.data['sourceId'] == sourceId
-        ra = self.data[selection]['RA']
-        dec = self.data[selection]['Dec']
-        # Query for objects within the box from the Object table.
+        ra = self.data[selection]['RA'].tolist()[0]
+        dec = self.data[selection]['Dec'].tolist()[0]
+        return ra, dec
+
+    def find_phosim_objects(self, ra, dec, box_size):
+        """
+        Query for objects within a box centered on ra, dec from the
+        PhosimObject table.
+        """
+        size = box_size/3600.  # convert from arcsec to degrees
+        cos_dec = np.abs(np.cos(dec*np.pi/180.))
+        ra_min, ra_max = ra - size/cos_dec, ra + size/cos_dec
+        dec_min, dec_max = dec - size, dec + size
+        query = '''select sourceId, Ra, Decl from PhosimObject obj where
+                   %(ra_min)12.8f < Ra and Ra < %(ra_max)12.8f and
+                   %(dec_min)12.8f < Decl and Decl < %(dec_max)12.8f''' \
+            % locals()
+        objects = self.conn.apply(query, GetData('sourceId RA Dec'.split()))
+        objects['separation'] = [sep.arcsec for sep in
+                                 separation((ra, dec),
+                                            (objects['RA'], objects['Dec']))]
+        return objects
+
+    def find_objects(self, ra, dec, box_size):
+        """
+        Query for objects within a box centered on ra, dec from the
+        Object table.
+        """
         size = box_size/3600.  # convert from arcsec to degrees
         cos_dec = np.abs(np.cos(dec*np.pi/180.))
         ra_min, ra_max = ra - size/cos_dec, ra + size/cos_dec
@@ -73,6 +92,17 @@ class PhosimObjects(object):
                    %(dec_min)12.8f < psDecl and psDecl < %(dec_max)12.8f''' \
             % locals()
         objects = self.conn.apply(query, GetData('objectId RA Dec'.split()))
+        return objects
+
+    def find_nearest_coadd_object(self, sourceId, box_size=5):
+        """
+        Find the nearest coadd object, searching within a box of
+        box_size arcmin squared centered on the target's sky location.
+        Return its objectId from the Object table.
+        """
+        # Get the sky coordinates of the phosim object via its sourceId.
+        ra, dec = self.get_ra_dec(sourceId)
+        objects = self.find_objects(ra, dec, box_size)
         # Loop over the objects and find the closest one.
         sep_min = None
         closest = None
@@ -82,6 +112,17 @@ class PhosimObjects(object):
                 sep_min = sep
                 closest = j
         return objects['objectId'][closest], sep_min
+
+    def get_light_curve(self, sourceId, band):
+        query = """select cv.obsStart, pcc.numPhotons from
+                   PhosimCentroidCounts pcc join CcdVisit cv
+                   on pcc.ccdVisitId=cv.ccdVisitId where
+                   sourceId=%(sourceId)s and cv.filterName='%(band)s'""" \
+            % locals()
+        data = self.conn.apply(query, GetData('obsStart numPhot'.split()))
+        mjd = astropy.time.Time(np.array(data['obsStart'].tolist())).mjd
+        numPhot = np.array(data['numPhot'].tolist())
+        return mjd, numPhot, np.sqrt(numPhot)
 
     def plot_lcs(self, sourceId, band, box_size=5, verbose=False,
                  figsize=(6, 10)):
@@ -95,17 +136,10 @@ class PhosimObjects(object):
         plt.rcParams['figure.figsize'] = figsize
 
         # Plot the PhoSim light curve.
-        query = """select cv.obsStart, pcc.numPhotons from
-                   PhosimCentroidCounts pcc join CcdVisit cv
-                   on pcc.ccdVisitId=cv.ccdVisitId where
-                   sourceId=%(sourceId)s and cv.filterName='%(band)s'""" \
-            % locals()
-        data = self.conn.apply(query, GetData('obsStart numPhot'.split()))
-        mjd = astropy.time.Time(np.array(data['obsStart'].tolist())).mjd
+        mjd, numPhot, numPhot_err = self.get_light_curve(sourceId, band)
         fig = plt.figure()
         ax = fig.add_subplot(311)
-        plt.errorbar(mjd, data['numPhot'], yerr=np.sqrt(data['numPhot']),
-                     fmt='o')
+        plt.errorbar(mjd, numPhot, yerr=numPhot_err, fmt='o')
         xaxis_range = plt.axis()[:2]
         plt.xlabel('mjd')
         plt.ylabel('numPhotons')
@@ -114,7 +148,7 @@ class PhosimObjects(object):
                      horizontalalignment='left')
 
         # Plot the ForcedSource light curve for the nearest coadd object.
-        objectId = self.find_nearest_coadd_object(sourceId)
+        objectId, sep_min = self.find_nearest_coadd_object(sourceId)
         query = """select cv.obsStart, fs.psFlux, fs.psFlux_Sigma
                    from CcdVisit cv join ForcedSource fs
                    on cv.ccdVisitId=fs.ccdVisitId
@@ -137,7 +171,7 @@ class PhosimObjects(object):
         times = []
         ratios = []
         errors = []
-        for time, nphot in zip(mjd, data['numPhot'].tolist()):
+        for time, nphot in zip(mjd, numPhot):
             try:
                 index = l2_mjd.tolist().index(time)
                 flux = l2['flux'][index]
@@ -159,8 +193,14 @@ class PhosimObjects(object):
         plt.ylabel('numPhotons / %(band)s band flux' % locals())
 
 if __name__ == '__main__':
-    SN_objects = PhosimObjects(dof_range=(0, 30), chisq_range=(1e3, 1e10))
-    AGN_objects = PhosimObjects(dof_range=(249, 249), chisq_range=(1e3, 1e10))
+    db_info = dict(database='jc_desc',
+                   host='ki-sr01.slac.stanford.edu',
+                   port=3307)
+    l2_service = desc.monitor.Level2DataService(db_info=db_info)
+    SN_objects = PhosimObjects(l2_service, dof_range=(0, 30),
+                               chisq_range=(1e3, 1e10))
+    AGN_objects = PhosimObjects(l2_service, dof_range=(249, 249),
+                                chisq_range=(1e3, 1e10))
 
     band = 'r'
 
