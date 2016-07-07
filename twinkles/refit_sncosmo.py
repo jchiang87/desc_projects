@@ -16,6 +16,16 @@ lc_factory = LightCurveFactory(**db_info)
 results = pd.read_pickle('sncosmo_results_model_comparisons.pkl')
 outfile = 'refit_results_%(imin)04i_%(imax)04i.pkl' % locals()
 
+dust = sncosmo.O94Dust()
+model = sncosmo.Model(source=source,
+                      effects=[dust, dust],
+                      effect_names=['host', 'mw'],
+                      effect_frames=['rest', 'obs'])
+                      
+dustmap = sncosmo.SFD98Map()
+ebv = dustmap.get_ebv(ra, dec) # in degrees from truth/DM evaluation of ra, dec
+model.set(mwebv=ebv)
+
 dt = 30
 for irow in range(imin, imax):
     print irow
@@ -23,12 +33,13 @@ for irow in range(imin, imax):
     row = results.iloc[irow]
     objectId = int(row.objectId)
     lc = lc_factory.create(objectId)
-    date_mask = np.where((row.t0 - 30 < lc.data['mjd']) &
-                         (lc.data['mjd'] < row.t0 + 30) &
+    # t0.row may be previous iterations but could also be truth values
+    # if thse were fixed, we should not add them to the fit_lc call
+    model.set(t0=row.t0, z=row.z)
+    date_mask = np.where((row.t0 - model.mintime() < lc.data['mjd']) &
+                         (lc.data['mjd'] < model.maxtime()) &
                          (lc.data['bandpass'] != 'lsstu'))
     data = lc.data[date_mask]
-    model = sncosmo.Model(source='salt2-extended')
-    model.set(t0=row.t0, z=row.z)
     try:
         res, fitted_model = sncosmo.fit_lc(data, model,
                                            ['z', 't0', 'x0', 'x1', 'c'],
