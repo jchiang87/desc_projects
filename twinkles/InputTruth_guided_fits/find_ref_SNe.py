@@ -65,6 +65,7 @@ def get_coadd_object(l2_service, ra, dec, box_size=2):
 
 if __name__ == '__main__':
     imin, imax = (int(x) for x in sys.argv[1:3])
+    outfile = 'results_%04i_%04i.pkl' % (imin, imax)
     db_info = dict(database='jc_desc',
                    host='ki-sr01.slac.stanford.edu',
                    port=3307)
@@ -81,7 +82,7 @@ if __name__ == '__main__':
 
     columns = """objectId ra dec z t0 x0 x1 c chisq ndof
                  sourceId snra sndec z_model t0_model x0_model x1_model
-                 chisq_catsim ndof_catsim""".split()
+                 c_model chisq_catsim ndof_catsim""".split()
     results = pd.DataFrame(columns=columns)
     for i in range(imin, imax):
         sourceId = sourceIds[i]
@@ -102,7 +103,11 @@ if __name__ == '__main__':
 
         # Find the nearest object from the Object table within +/-2
         # arcsec of the catsim source coordinates.
-        obj = get_coadd_object(l2_service, model.ra, model.dec, box_size=2)
+        try:
+            obj = get_coadd_object(l2_service, model.ra, model.dec, box_size=2)
+        except ValueError:
+            # No objects found so skip this one.
+            continue
         objectId = obj.objectId.iloc[0]
         # Get the ForcedSource light curves and select the data based
         # on nominal time range of the model (and exclude the u band
@@ -114,16 +119,23 @@ if __name__ == '__main__':
         data = lc.data[data_mask]
         # Fit the data using a redshift bounds of +/- 0.03 centered on
         # the input model value.
-        res, fitted_model = sncosmo.fit_lc(data, model,
-                                           'z t0 x0 x1 c'.split(),
-                                           bounds=dict(z=(model.z-0.03,
-                                                          model.z+0.03)))
-        # Stuff everything into the results DataFrame.
-        row = [objectId, obj.ra.iloc[0], obj.dec.iloc[0]]
-        foo = sncosmo.flatten_result(res)
-        for key in 'z t0 x0 x1 c chisq ndof'.split():
-            row.append(foo[key])
-        row.extend([sourceId, model.ra, model.dec, model.z, model.t0,
-                    model.x0, model.x1, chisq_catsim, ndof_catsim])
-        results = results.append(pd.DataFrame(data=[row], columns=columns),
-                                 ignore_index=True)
+        try:
+            res, fitted_model = sncosmo.fit_lc(data, model,
+                                               'z t0 x0 x1 c'.split(),
+                                               bounds=dict(z=(model.z-0.03,
+                                                              model.z+0.03)))
+            # Stuff everything into the results DataFrame.
+            row = [objectId, obj.ra.iloc[0], obj.dec.iloc[0]]
+            foo = sncosmo.flatten_result(res)
+            for key in 'z t0 x0 x1 c chisq ndof'.split():
+                row.append(foo[key])
+            row.extend([sourceId, model.ra, model.dec, model.z, model.t0,
+                        model.x0, model.x1, model.c, chisq_catsim, ndof_catsim])
+            results = results.append(pd.DataFrame(data=[row], columns=columns),
+                                     ignore_index=True)
+
+#            sncosmo.plot_lc(data=ref_lc.lightcurve[mask], model=model)
+#            sncosmo.plot_lc(data=data, model=fitted_model, errors=res.errors)
+            results.to_pickle(outfile)
+        except (RuntimeError, sncosmo.fitting.DataQualityError, ValueError):
+            continue
