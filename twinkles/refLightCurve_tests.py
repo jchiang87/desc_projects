@@ -14,6 +14,11 @@ def separation(a, b):
     b_coord = coords.SkyCoord(b[0], b[1], unit=(units.degree, units.degree))
     return a_coord.separation(b_coord)
 
+class SNLightCurve(desc.monitor.LightCurve):
+    def __init__(self, params):
+        super(SNLightCurve, self).__init__()
+        self.params = params
+
 class SNRefLightCurveServer(object):
     def __init__(self):
         obs = pd.read_csv(os.path.join(lsst.utils.getPackageDir('monitor'),
@@ -30,7 +35,7 @@ class SNRefLightCurveServer(object):
         cos_dec = np.abs(np.cos(dec*np.pi/180.))
         ra_min, ra_max = ra - size/cos_dec, ra + size/cos_dec
         dec_min, dec_max = dec - size, dec + size
-        query = """select snid, snra, sndec, t0 from TwinkSN where
+        query = """select snid, snra, sndec, t0, redshift from TwinkSN where
                    %(ra_min)12.8f < snra and snra < %(ra_max)12.8f and
                    %(dec_min)12.8f < sndec and sndec < %(dec_max)12.8f"""\
             % locals()
@@ -41,7 +46,7 @@ class SNRefLightCurveServer(object):
             row.append(separation((ra, dec), row[1:]).arcsec)
             row[3] += mjd_offset
         return pd.DataFrame(data=data,
-                            columns='snid RA Dec t0 sep_arcsec'.split())
+                            columns='snid RA Dec t0 redshift sep_arcsec'.split())
 
     def _sourceId(self, catsim_id, nshift):
         return np.left_shift(long(catsim_id), nshift) + self.ref_lcs.objectID
@@ -49,6 +54,23 @@ class SNRefLightCurveServer(object):
     def get_params(self, catsim_id, nshift=10):
         sourceId = self._sourceId(catsim_id, nshift)
         return self.ref_lcs.astro_object(sourceId)
+
+    def get_SNLightCurve_object(self, sourceId, mjd_offset=59580.):
+        df = pd.concat([self.ref_lcs.lightCurve(sourceId, bandName=band)
+                        for band in 'ugrizy'])
+        params = self.ref_lcs.get_params(sourceId)
+        nrows = len(df)
+        data = dict(bandpass=['lsst' + band for band in df['band'].tolist()],
+                    mjd=np.array(df['time'].tolist()),
+                    ra=nrows*[params.get('snra')[0]],
+                    dec=nrows*[params.get('sndec')[0]],
+                    flux=np.array(df['flux'].tolist()),
+                    fluxerr=np.array(df['fluxerr'].tolist()),
+                    zp = nrows*[0],
+                    zpsys = nrows*['ab'])
+        my_lc = SNLightCurve(params)
+        my_lc.lightcurve = astropy.table.Table(data=data)
+        return my_lc
 
     def get_light_curve(self, catsim_id, band, nshift=10):
         sourceId = self._sourceId(catsim_id, nshift)
@@ -92,17 +114,16 @@ if __name__ == '__main__':
     l2_service = desc.monitor.Level2DataService(repo, db_info=db_info)
 
     band = 'r'
-    results_file = 'run1.1_SNe_salt2-extended_fit_results_no_uband.txt'
-#    results_file = 'run1.1_SNe_salt2-extended_fit_results.txt'
+    results_file = 'sncosmo_results_r.txt'
     results = pd.DataFrame(np.recfromtxt(results_file,
                                          names='objectId chisq ndof z t0 x0 x1 c'.split()))
 
     for colname in 'z t0 x0 x1 c'.split():
         results[colname+'_model'] = np.zeros(len(results))
 
-    make_plot = True
+    make_plot = False
 
-    for i, objectId in enumerate(results['objectId'][:5]):
+    for i, objectId in enumerate(results['objectId']):
         t0 = results['t0'][i]
         print i, objectId, t0
 
@@ -135,5 +156,5 @@ if __name__ == '__main__':
             plt.plot((t0, t0), plt.axis()[-2:], 'k:')
             plt.plot((t0_model, t0_model), plt.axis()[-2:], 'r:')
 
-    outfile = 'run1.1_SNe_salt2_fit_comparisons.pkl'
-#    results.to_pickle(outfile)
+    outfile = 'sncosmo_results_model_comparisons.pkl'
+    results.to_pickle(outfile)
